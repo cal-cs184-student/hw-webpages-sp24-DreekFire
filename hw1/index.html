@@ -1,7 +1,262 @@
-<html>
-	<head>
-	</head>
-	<body>
-		Homework 1 index.html here
-	</body>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+<head>
+<style>
+  body {
+    padding: 100px;
+    width: 1000px;
+    margin: auto;
+    text-align: left;
+    font-weight: 300;
+    font-family: 'Open Sans', sans-serif;
+    color: #121212;
+  }
+  h1, h2, h3, h4 {
+    font-family: 'Source Sans Pro', sans-serif;
+  }
+</style>
+<title>CS 184/284A Rasterizer</title>
+<meta http-equiv="content-type" content="text/html; charset=utf-8" />
+<link href="https://fonts.googleapis.com/css?family=Open+Sans|Source+Sans+Pro" rel="stylesheet">
+<script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
+<script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+</head>
+
+
+<body>
+
+<h1 align="middle">CS 184/284A: Computer Graphics and Imaging, Spring 2024</h1>
+<h1 align="middle">Homework 1: Rasterizer</h1>
+<h2 align="middle">Derek Guo</h2>
+
+<p>https://cal-cs184-student.github.io/hw-webpages-sp24-DreekFire/hw1/index.html</p>
+
+<br><br>
+
+<div>
+
+<h2 align="middle">Overview</h2>
+<p>In this homework, I built a triangle rasterizer which drew triangles with solid color, per-vertex color, or textured color. I did antialiasing using supersampling as well as mipmapping, and drew triangles with transforms applied. Overall, the homework was very straightforward. The only part where I ran into issues was checking pixels for membership in a triangle. Using the basic method of calculating the barycentric coordinates, I ran into floating point inaccuracy, resulting in some pixels not being drawn. I ultimately was unable to resolve this fully, but I only used the basic method for small triangles which seemed to resolve the issue. Using the method of calculating the first and last filled pixel in each row, I had issues with integer underflow. In retrospect, it would've been easier to simply use signed integers despite image coordinates being nonnegative.</p>
+
+<h2 align="middle">Section I: Rasterization</h2>
+
+<h3 align="middle">Part 1: Rasterizing single-color triangles</h3>
+
+<p>
+  In order to rasterize a triangle, I compute the axis-aligned bounding box of the triangle by finding the min and max x and y coordinates of the vertices. A triangle is guaranteed to be its own convex hull so no part of the triangle can extend outside these bounds.
+
+  At first, I iterated over every pixel center in this bounding box. I computed the barycentric coordinates of each point and copied the desired color into the buffer at that point if the barycentric coordinates were all between 0 and 1 (inclusive). The barycentric coordinates were computed using the formulas from lecture 5.
+</p>
+
+<img align="middle" src="images/raster.png" width="400px"/>
+<figcaption>test1.svg</figcaption>
+
+<p>
+  Afterwards, I optimized it by simplifying the formula for barycentric coordinates. Since barycentric coordinates are linear, I calculated them by calculating alpha_0, beta_0, gamma_0 at some point (x_0, y_0) (i.e. the top left corner)
+  and calculating alpha = alpha_0 + (x - x_0) * dalpha/dx + (y - y_0) * dalpha/dy, and similarly for beta and gamma. I could also choose a point with known barycentric coords such as (x_A, y_A) to skip calculating alpha_0, beta_0, gamma_0.
+
+  Unfortunately, this resulted in some floating point inaccuracy, resulting in some pixels incorrectly not being drawn. One possible workaround would be to use a line drawing algorithm to always draw the border of the triangle.
+
+  I later realized that half of the checks were redundant. Due to the constraint that gamma = 1 - alpha - beta, it was only necessary to check that each of alpha, beta, and gamma were nonnegative, which would guarantee that they were also at most 1.
+
+  Finally, for wider triangles, I further optimized this by dividing each triangle into a top and bottom triangle, with a horizontal line separating the two. Then I only needed to check two lines. For each row in the sample buffer, I checked where these two lines intersected that row and filled all the pixels in between. This takes advantage of the fact that triangles are convex, so the line connecting any two points in a triangle also lies entirely within that triangle. This removes the need to test any pixels for membership at all. However, the overhead of finding these bounds is somewhat high so it is faster to simply check every pixel if the triangle is sufficiently narrow. I determined this by calculating the base of the horizontal line splitting the triangles into top and bottom, which is the widest part of each triangle. This also removed the issue of floating point inaccuracy. Since only smaller triangles were drawn by the previous method, there were not enough steps for floating point error to accumulate.
+
+  These optimizations greatly sped up the rendering. With compiler optimizations off, checking every pixel in the bounding box required 120ms to render the dragon. In comparison, using the bounds method for every triangle required only 45ms, while using the bounds method only for wide triangles while checking every pixel for narrow triangles required only 30ms. With optimizations on, checking every pixel required 20ms, using only bounds fluctuated between 10 and 20ms, and using bounds for wide triangles while checking every pixel for narrow triangles required 10-15ms.
+
+  In order to check the center of each pixel (0.5, 0.5) rather than the corner, I simply shifted the coordinates of each triangle by -0.5.
+</p>
+
+<div align="middle">
+  <table style="width:100%">
+    <caption>Time (ms) to render test3.svg</caption>
+    <tr>
+      <td>
+        Method
+      </td>
+      <td>
+        Debug (w/o compiler optimizations)
+      </td>
+      <td>
+        Release (w/ compiler optimizations)
+      </td>
+    </tr>
+    <tr>
+      <td>
+        Every Pixel
+      </td>
+      <td>
+        120
+      </td>
+      <td>
+        20
+      </td>
+    </tr>
+    <br>
+    <tr>
+      <td>
+        Bounds
+      </td>
+      <td>
+        45
+      </td>
+      <td>
+        10-20
+      </td>
+    </tr>
+    <tr>
+      <td>
+        Bounds for Wide, Every for Narrow
+      </td>
+      <td>
+        30
+      </td>
+      <td>
+        10-15
+      </td>
+    </tr>
+  </table>
+</div>
+
+<div align="middle">
+  <table style="width:100%">
+    <tr>
+      <td>
+        <img src="images/ss1.png" align="middle" width="400px"/>
+        <figcaption align="middle">test4.svg, sample rate 1</figcaption>
+      </td>
+      <td>
+        <img src="images/ss4.png" align="middle" width="400px"/>
+        <figcaption align="middle">test4.svg, sample rate 4</figcaption>
+      </td>
+    </tr>
+    <br>
+    <tr>
+      <td>
+        <img src="images/ss9.png" align="middle" width="400px"/>
+        <figcaption align="middle">test4.svg, sample rate 9</figcaption>
+      </td>
+      <td>
+        <img src="images/ss16.png" align="middle" width="400px"/>
+        <figcaption align="middle">test4.svg, sample rate 16</figcaption>
+      </td>
+    </tr>
+  </table>
+</div>
+
+<h3 align="middle">Part 2: Antialiasing triangles</h3>
+
+<p>
+  To implement grid-based supersampling, I simply enlarged the sample buffer by sample_rate times and multiplied the coordinates of each triangle by sqrt(sample_rate). I then drew into the sample buffer in the same way as before. To draw points, I filled in a square of pixels located at (x * sqrt(sample_rate), y * sqrt(sample_rate)).
+
+  Rather than sampling at a lower frequency, which can introduce aliasing, supersampling first samples at a high frequency, which increases the frequency before which aliasing occurs, and then blurs the supersampled signal to produce the final output. This is useful in cases when it is not feasible to blur the original signal, i.e. because it is not in a convenient representation.
+
+  To convert the sample buffer into a frame buffer, rather than applying a square uniform kernel of size (sqrt(sample_rate), sqrt(sample_rate)), I applied a horizontal kernel followed by a vertical kernel. For sampling rates larger than 4, this greatly reduces the number of operations needed.
+
+  One potential future optimization would be to maintain a separate opacity buffer and either draw directly into the frame buffer or draw into a much smaller sample buffer which is then processed and copied into the frame buffer once it is full. This would greatly decrease memory usage because we would not need to store an extra sample buffer which is sample_rate times larger than the frame_buffer, and it would likely improve performance by reducing the amount of memory accesses or improving spatial locality.
+
+  In the images above, we can see that without supersampling, one of the narrow triangles appears to cut in and out as the triangle alternates between passing through pixels and passing in between them. With supersampling, the sample points are much closer together, making it more difficult for the triangle to pass in between sample points. Its presence is more smoothly captured, resulting in a gradual fade towards the end of the triangle.
+</p>
+
+<h3 align="middle">Part 3: Transforms</h3>
+
+<img align="middle" src="images/my_robot.png" width="400px"/>
+<figcaption>The Headless Cubeman Waving at You</figcaption>
+
+<h2 align="middle">Section II: Sampling</h2>
+
+<h3 align="middle">Part 4: Barycentric coordinates</h3>
+
+<p>
+  Barycentric coordinates expresses any point as a linear combination of the vertices such that the coefficients sum to 1. In other words, they represent how much "influence" each vertex has on each point in the plane. Additionally, they map any triangle into a right triangle with vertices [(0, 0), (0, 1), (1, 0)] in the alpha-beta, beta-gamma, or gamma-alpha planes.
+
+  I used the alpha, beta, gamma calculated in part 1 as coefficients in a linear combination of the colors or UV coordinates at each vertex.
+</p>
+
+<img align="middle" src="images/barycentric.png" width="400px"/>
+<figcaption>Barycentric coordinates demonstration</figcaption>
+
+<p>
+  This figure is colored according to (alpha, beta, gamma). It shows how barycentric coordinates reflect how much influence each vertex has over that point. In other words, if that vertex were to be moved, the point would move a proportional distance based on the corresponding barycentric coordinate. Coloring the triangle according to (1 - x - y, x, y) gives an identical image (if x and y) are scaled correctly.
+</p>
+
+<img src="images/test7.png" width="400px"/>
+<figcaption>test7.png - smoothly blended color wheel</figcaption>
+
+<h3 align="middle">Part 5: "Pixel sampling" for texture mapping</h3>
+
+<p>
+  Pixel sampling maps points on the image plane to points within a texture image. I calculate these coordinates by interpolating the UV coordinates of the vertices using the barycentric coordinates of the sample point as described in the previous part. Nearest sampling copies the color of the texel nearest the computed UV coordinates into the sample pixel, whereas bilinear sampling linearly interpolates between the 4 texels surrounding the calculated UV coordinates.
+</p>
+
+<div align="middle">
+  <table style="width:100%">
+    <tr>
+      <td>
+        <img src="images/tex_near_1.png" align="middle" width="400px"/>
+        <figcaption align="middle">nearest sampling, sample rate 1</figcaption>
+      </td>
+      <td>
+        <img src="images/tex_bi_1.png" align="middle" width="400px"/>
+        <figcaption align="middle">bilinear sampling, sample rate 1</figcaption>
+      </td>
+    </tr>
+    <br>
+    <tr>
+      <td>
+        <img src="images/tex_near_16.png" align="middle" width="400px"/>
+        <figcaption align="middle">nearest sampling, sample rate 16</figcaption>
+      </td>
+      <td>
+        <img src="images/tex_bi_16.png" align="middle" width="400px"/>
+        <figcaption align="middle">bilinear sampling, sample rate 16</figcaption>
+      </td>
+    </tr>
+  </table>
+</div>
+
+<p>
+  With sample rate 1, bilinear sampling defeats nearest sampling. While it still does not produce a continuous line, it produces lines that gradually fade in and out as the sample point gets nearer and farther from the line in the texture. On the other hand, nearest sampling produces abrubt changes where the line suddenly appears or disappears.
+
+  With sample rate 16, the results are much closer. At a higher sampling rate, the distance between sample points is much smaller, so there is likely to be a smaller difference between the nearest texel and the interpolated values.
+
+  The greatest difference is likely to exist when the sample points fall between two very different pixels in the texture. Then nearest sampling would produce extreme values while bilinear sampling would produce an intermediate value.
+</p>
+
+<h3 align="middle">Part 6: "Level sampling" with mipmaps for texture mapping</h3>
+
+<p>
+  Rather than sampling from the original texture, level sampling samples from increasingly lower-frequency versions of the texture in order to match the sampling frequency to prevent aliasing. This is similar to supersampling, but it lowers the frequency of the original signal rather than a sampled version of it. The downside of this is that aliasing may still occur along the edges of triangles.
+
+  In part 1, I already calculated the partial derivatives of the barycentric coordinates w.r.t. x and y. Using the chain rule, we can then compute the partial derivatives of u and v w.r.t. x and y. As I have not implemneted anisotropic filtering, I use the largest magnitude out of [du/dx, dv/dx] and [du/dy, dv/dy] to calculate the number of texels per pixel. Then, I take the base-2 logarithm of that value to choose the mip level.
+</p>
+
+<div align="middle">
+  <table style="width:100%">
+    <tr>
+      <td>
+        <img src="images/level_zero_nearest.png" align="middle" width="400px"/>
+        <figcaption align="middle">Level Zero, Nearest Sampling</figcaption>
+      </td>
+      <td>
+        <img src="images/level_zero_linear.png" align="middle" width="400px"/>
+        <figcaption align="middle">Level Zero, Linear Sampling</figcaption>
+      </td>
+    </tr>
+    <br>
+    <tr>
+      <td>
+        <img src="images/level_nearest_nearest.png" align="middle" width="400px"/>
+        <figcaption align="middle">Level Nearest, Nearest Sampling</figcaption>
+      </td>
+      <td>
+        <img src="images/level_nearest_linear.png" align="middle" width="400px"/>
+        <figcaption align="middle">Level Nearest, Linear Sampling</figcaption>
+      </td>
+    </tr>
+  </table>
+</div>
+
+<p>I used a photograph of the hallway outside Professor Ng's office. This hallway has a carpet with a high frequency pattern on it. At level zero, both nearest sampling and bilinear sampling result in a very noisy image, although bilinear sampling is slightly smoother as, even when a sample falls near an outlier value, it usually gets smoothed out by adjacent values. In contrast, with mip levels, the image is much smoother, better representing the overall color of the carpet.</p>
+
+</body>
 </html>
