@@ -1,7 +1,391 @@
-<html>
-	<head>
-	</head>
-	<body>
-		Homework 4 index.html here
-	</body>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+<head>
+  <style>
+    body {
+      padding: 100px;
+      width: 1000px;
+      margin: auto;
+      text-align: left;
+      font-weight: 300;
+      font-family: 'Open Sans', sans-serif;
+      color: #121212;
+    }
+
+    h1, h2, h3, h4 {
+      font-family: 'Source Sans Pro', sans-serif;
+    }
+  </style>
+  <title>CS 184 Mesh Editor</title>
+  <meta http-equiv="content-type" content="text/html; charset=utf-8" />
+  <link href="https://fonts.googleapis.com/css?family=Open+Sans|Source+Sans+Pro" rel="stylesheet" />
+
+  <script>
+  MathJax = {
+    tex: {
+      inlineMath: [['$', '$'], ['\\(', '\\)']]
+    }
+  };
+  </script>
+  <script id="MathJax-script" async=async
+          src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js">
+  </script>
+</head>
+
+
+<body>
+
+<h1 align="middle">CS 184: Computer Graphics and Imaging, Spring 2024</h1>
+<h1 align="middle">Project 4: Cloth Simulator</h1>
+<h2 align="middle">Derek Guo</h2>
+
+<br><br>
+
+    <div>
+
+      <h2 align="middle">Overview</h2>
+      <p>
+        I implemented a cloth simulator which models a cloth as a grid of point masses connected by springs. I then implemented the physics of the cloth using Verlet integration and Hooke's law, as well as collision detection between the cloth and spheres and planes as well as the cloth and itself. Finally, I implemented various shaders to change the visual appearance of the cloth.
+
+        I learned about some factors which contribute to whether a simulation is stable or not, as well as how Verlet integration attempts to rein in some instabilities. I also observed how spatial hashing can be used to accelerate collision detection. Finally, I gained a better understanding of how shaders work.
+      </p>
+
+      <h2 align="middle">Part I: Masses and springs</h2>
+
+      <p>I generated a grid of point masses. Then, I created structural springs between each point mass and the one to their right (except for the rightmost column), and the one to their top (except for the topmost row). I then created shearing springs between each point mass and the one to their upper right (except the topmost and rightmost row and column) and the one to their upper left (except the topmost and leftmost row and column). Finally, I created bending springs which were 0.2 times the strength of the other strings. These were connected between each point mass and the one two steps to their right (except for the two rightmost columns) and the one two steps above (except for the two topmost rows).</p>
+
+      <p>(Will most likely need to zoom in to get past the aliasing)</p>
+
+      <div align="middle">
+        <table style="width:100%">
+          <tr align="center">
+            <td>
+              <img src="img/noshear.png" align="middle" width="300px" />
+              <figcaption>No shearing constraints</figcaption>
+            </td>
+            <td>
+              <img src="img/onlyshear.png" align="middle" width="300px" />
+              <figcaption>Only shearing constraints</figcaption>
+            </td>
+            <td>
+              <img src="img/allconstraints.png" align="middle" width="300px" />
+              <figcaption>All constraints</figcaption>
+            </td>
+          </tr>
+        </table>
+      </div>
+
+      <h2 align="middle">Part II: Simulation via numerical integration</h2>
+
+      <p>Increasing density has the same effect as decreasing $k_s$, since the acceleration due to springs is multiplied by $k_s$ and then divided by the mass, which is proportional to density, while the acceleration due to gravity is not affected by either. With a very high $k_s$ or very low density (50000 $k_s$, 10 density), the cloth stretches nearly flat. On the other hand, with a very low $k_s$ or high density, the cloth droops much further while also bending much more. However, the amount of droop is limited by the Provot limitation, as increasing the density while decreasing $k_s$ even further does not make it droop any further.</p>
+
+      <div align="middle">
+        <table style="width:100%">
+          <tr align="center">
+            <td>
+              <img src="img/highks.png" align="middle" width="300px" />
+              <figcaption>High $k_s$ (50000)</figcaption>
+            </td>
+            <td>
+              <img src="img/default2.png" align="middle" width="300px" />
+              <figcaption>Default (5000, 15)</figcaption>
+            </td>
+            <td>
+              <img src="img/lowks.png" align="middle" width="300px" />
+              <figcaption>Low $k_s$ (500)</figcaption>
+            </td>
+          </tr>
+          <tr align="center">
+            <td>
+              <img src="img/lowdensity.png" align="middle" width="300px" />
+              <figcaption>Low density (1.5)</figcaption>
+            </td>
+            <td>
+              <img src="img/default2.png" align="middle" width="300px" />
+              <figcaption>Default (5000, 15)</figcaption>
+            </td>
+            <td>
+              <img src="img/highdensity.png" align="middle" width="300px" />
+              <figcaption>High density (150)</figcaption>
+            </td>
+          </tr>
+        </table>
+      </div>
+
+      <p>As expected, the low density cloth is practically identical to the high $k_s$ cloth, the inverse is true as well.</p>
+
+      <img src="img/extreme.png" align="middle" width="300px" />
+      <figcaption>Low $k_s$, high density (500, 150)</figcaption>
+
+      <p>Meanwhile, increasing $k_s$ and decreasing density even further does not increase the droop, so the Provot limitation is likely already taking effect.</p>
+
+      <div align="middle">
+        <table style="width:100%">
+          <tr align="center">
+            <td>
+              <img src="img/highdamping.png" align="middle" width="300px" />
+              <figcaption>High damping (0.4%)</figcaption>
+            </td>
+            <td>
+              <img src="img/default2.png" align="middle" width="300px" />
+              <figcaption>Default (0.2%)</figcaption>
+            </td>
+            <td>
+              <img src="img/lowdamping.png" align="middle" width="300px" />
+              <figcaption>Low damping (0.02%)</figcaption>
+            </td>
+          </tr>
+        </table>
+      </div>
+
+      <p>When damping is changed, the cloth can behave differently while falling, resulting in a different resting state. For example, in the low damping run, the momentum of the cloth kept sending ripples through the cloth, eventually causing the cloth to settle with the top flipped the opposite direction of the other runs. However, qualitatively, the final states are very similar regardless of the damping value. The damping value primary determines transient behavior like how long the cloth states to settle.</p>
+
+      <img src="img/shaded4.png" align="middle" width="600px" />
+      <figcaption>pinned4 in default state</figcaption>
+
+      <h2 align="middle">Part III: Handling collisions with other objects</h2>
+
+      <p>Collision between a point mass and a plane is detected by checking whether the <code>last_position</code> and current <code>position</code> of the point mass are on opposite sides of the plane. Collision with a sphere is detected by checking whether the distance from the sphere to the point mass is less than the radius of the sphere. In both cases, we find the correction needed to move the point mass from its <code>last_position</code> to its tangent point, which is where the line between its <code>last_position</code> and current <code>position</code> intersect the primitive (with an offset for the plane). We then apply the correction less a friction coefficient.</p>
+
+      <p>When $k_s$ is decreased, the cloth droops lower and straighter, whereas when $k_s$ is increased, the cloth does not droop as low and also props itself open at a wider angle.</p>
+
+      <div align="middle">
+        <table style="width:100%">
+          <tr align="center">
+            <td>
+              <img src="img/spherehigh.png" align="middle" width="300px" />
+              <figcaption>High $k_s$ (50000)</figcaption>
+            </td>
+            <td>
+              <img src="img/spheredefault.png" align="middle" width="300px" />
+              <figcaption>Default (5000)</figcaption>
+            </td>
+            <td>
+              <img src="img/spherelow.png" align="middle" width="300px" />
+              <figcaption>Low $k_s$ (500)</figcaption>
+            </td>
+          </tr>
+        </table>
+      </div>
+
+      <p>The cloth successfully falls and rests on top of the plane.</p>
+
+      <div align="middle">
+        <table style="width:100%">
+          <tr align="center">
+            <td>
+              <img src="img/fallenplane.png" align="middle" width="400px" />
+              <figcaption>Cloth in resting state</figcaption>
+            </td>
+            <td>
+              <img src="img/77.png" align="middle" width="400px" />
+              <figcaption>Texture used</figcaption>
+            </td>
+          </tr>
+        </table>
+      </div>
+
+      <h2 align="middle">Part IV: Handling self-collisions</h2>
+      <p>When the cloth initially makes contact with the plane, it begins to crumple at the bottom. Higher $k_s$ and lower density results in fewer, wider folds while lower $k_s$ and higher density results in the opposite. Afterwards, the cloth falls into a heap, again with the size of folds increasing with $k_s$ and decreasing with density. It then flattens out with some folds, with lower $k_s$ and higher density resulting in more complex folds, though in all cases the cloth eventually unfolds itself very slowly. Once again, decreasing the density has the same effect as raising $k_s$, and vice versa. A higher $k_s$ and lower density result in the bending springs preventing the cloth from folding as tightly, causing wider folds, and also unfolding the cloth once it has fallen by pushing folds straight.</p>
+
+      <div align="middle">
+        <table style="width:100%">
+          <tr align="center">
+            <td>
+              <img src="img/self1.png" align="middle" width="250px" />
+              <figcaption>Initial collision and crumple</figcaption>
+            </td>
+            <td>
+              <img src="img/self2.png" align="middle" width="250px" />
+              <figcaption>Piling into a heap</figcaption>
+            </td>
+            <td>
+              <img src="img/self3.png" align="middle" width="250px" />
+              <figcaption>Flattening out</figcaption>
+            </td>
+            <td>
+              <img src="img/self4.png" align="middle" width="250px" />
+              <figcaption>Unfolding</figcaption>
+            </td>
+          </tr>
+          <tr align="center">
+            <td>
+              <img src="img/self1low.png" align="middle" width="250px" />
+              <figcaption>Low $k_s$ (500) results in more, smaller crumple folds</figcaption>
+            </td>
+            <td>
+              <img src="img/self2low.png" align="middle" width="250px" />
+              <figcaption>Low $k_s$ results in messier heap</figcaption>
+            </td>
+            <td>
+              <img src="img/self3low.png" align="middle" width="250px" />
+              <figcaption>Low $k_s$ results in more intricate folds when flattened out</figcaption>
+            </td>
+            <td>
+              <img src="img/self4low.png" align="middle" width="250px" />
+              <figcaption>Low $k_s$ still unfolds eventually</figcaption>
+            </td>
+          </tr>
+          <tr align="center">
+            <td>
+              <img src="img/self1high.png" align="middle" width="250px" />
+              <figcaption>High $k_s$ (50000) results in fewer, wider crumple folds</figcaption>
+            </td>
+            <td>
+              <img src="img/self2high.png" align="middle" width="250px" />
+              <figcaption>High $k_s$ results in simpler heap</figcaption>
+            </td>
+            <td>
+              <img src="img/self3high.png" align="middle" width="250px" />
+              <figcaption>High $k_s$ results in fewer folds when flattened out</figcaption>
+            </td>
+            <td>
+              <img src="img/self4high.png" align="middle" width="250px" />
+              <figcaption>High $k_s$ unfolds the cloth quickly</figcaption>
+            </td>
+          </tr>
+        </table>
+      </div>
+
+      <p>Since raising the density is exactly equivalent to lowering $k_s$ by the same factor (since we have not implemented external forces like wind), high density behaves like low $k_s$, forming many small folds, and low density behaves like high $k_s$, forming fewer, wider folds.</p>
+
+      <div align="middle">
+        <table style="width:100%">
+          <tr align="center">
+            <td>
+              <img src="img/selfhighdensity.png" align="middle" width="400px" />
+              <figcaption>High density acts like low ks</figcaption>
+            </td>
+            <td>
+              <img src="img/selflowdensity.png" align="middle" width="400px" />
+              <figcaption>Low density acts like high ks</figcaption>
+            </td>
+          </tr>
+        </table>
+      </div>
+
+      <h2 align="middle">Part V: Shaders</h2>
+
+      <p>A shader program is a program which provides the color of pixels during the rendering process, usually used by the GPU. The vertex shader can modify geometry by adjusting vertices and their normals, while the fragment shader uses geometry information to determine the correct lighting and color. When combined, they can create lighting and material effects by mimicking the local geometry and photometric properties of various materials. The Blinn-Phong shading model approximates light transport with three components: ambient, diffuse, and specular.</p>
+
+      <p>The specular component represents light reflected off of a surface, and is only visible when the normal vector nearly bisects the incoming and outgoing light rays; in particular, it is proportional to the dot product between the normalized bisector and normal vectors, raised to some power. How quickly the specular component falls off can be adjusted by that power and determines how glossy or matte the material is.</p>
+
+      <p>The diffuse component represents light which is scattered and is proportional to the dot product between the normal vector and the incoming light ray. Unlike the specular component (at least for dielectric materials), it is also colored by the material.</p>
+
+      <p>Finally, the ambient component represents the bounce lighting from the environment. Simply setting a constant ambient lighting is much cheaper than tracing ray bounces while allowing the entire environment to be visible.</p>
+
+      <div align="middle">
+        <table style="width:100%">
+          <tr align="center">
+            <td>
+              <img src="img/phongambient.png" align="middle" width="400px" />
+              <figcaption>Blinn-Phong ambient component</figcaption>
+            </td>
+            <td>
+              <img src="img/phongdiffuse.png" align="middle" width="400px" />
+              <figcaption>Blinn-Phong diffuse component</figcaption>
+            </td>
+          </tr>
+          <tr align="center">
+            <td>
+              <img src="img/phongspecular.png" align="middle" width="400px" />
+              <figcaption>Blinn-Phong specular component</figcaption>
+            </td>
+            <td>
+              <img src="img/phongfull.png" align="middle" width="400px" />
+              <figcaption>Blinn-Phong full shader</figcaption>
+            </td>
+          </tr>
+        </table>
+      </div>
+
+      <p>Additionally, in the Blinn-Phong model, the specular component is not affected by the color of the material. This can be seen in this example with a red cloth, which has a white specular reflection.</p>
+
+      <img src="img/phongcolor.png" align="middle" width="400px" />
+      <figcaption>Blinn-Phong with color</figcaption>
+
+      <div align="middle">
+        <table style="width:100%">
+          <tr align="center">
+            <td>
+              <img src="img/qiqistart.png" align="middle" width="400px" />
+              <figcaption>Texture mapping, simulation start</figcaption>
+            </td>
+            <td>
+              <img src="img/qiqiend.png" align="middle" width="400px" />
+              <figcaption>Texture mapping, after cloth has fallen</figcaption>
+            </td>
+          </tr>
+          <tr align="center">
+            <td>
+              <img src="img/mirrorstart.png" align="middle" width="400px" />
+              <figcaption>Mirror shader, simulation start</figcaption>
+            </td>
+            <td>
+              <img src="img/mirrorend.png" align="middle" width="400px" />
+              <figcaption>Mirror shader, after cloth has fallen</figcaption>
+            </td>
+          </tr>
+        </table>
+      </div>
+
+      <div align="middle">
+        <table style="width:100%">
+          <tr align="center">
+            <td>
+              <img src="img/bumpcloth.png" align="middle" width="400px" />
+              <figcaption>Bump mapping, simulation start</figcaption>
+            </td>
+            <td>
+              <img src="img/displacementcloth.png" align="middle" width="400px" />
+              <figcaption>Displacement mapping, simulation start</figcaption>
+            </td>
+          </tr>
+          <tr align="center">
+            <td>
+              <img src="img/bumpend.png" align="middle" width="400px" />
+              <figcaption>Bump mapping, fallen cloth</figcaption>
+            </td>
+            <td>
+              <img src="img/displacementend.png" align="middle" width="400px" />
+              <figcaption>Displacement mapping, fallen cloth</figcaption>
+            </td>
+          </tr>
+        </table>
+      </div>
+
+      <p>In the center of the object, both bump mapping and displacement mapping are fairly convincing. However, along the edges, it becomes clear that the geometry seemingly produced by bump mapping is fake because the edges remain perfectly straight even on an apparently bumpy surface. In contrast, displacement mapping generates real geometry. When viewed from shallow angles, the vertical displacement caused by displacement mapping is visible, as well as the occlusion caused by geometry at different heights. In contrast, the bump mapped cloth still appears flat, with the texture merely printed on it, and the entire plane remains visible. Overall, displacement mapping is much more convincing.</p>
+
+      <div align="middle">
+        <table style="width:100%">
+          <tr align="center">
+            <td>
+              <img src="img/bumpspherelow.png" align="middle" width="400px" />
+              <figcaption>Bump mapping, low resolution sphere</figcaption>
+            </td>
+            <td>
+              <img src="img/bumpspherehigh.png" align="middle" width="400px" />
+              <figcaption>Bump mapping, high resolution sphere</figcaption>
+            </td>
+          </tr>
+          <tr align="center">
+            <td>
+              <img src="img/displacementspherelow.png" align="middle" width="400px" />
+              <figcaption>Displacement mapping, low resolution sphere</figcaption>
+            </td>
+            <td>
+              <img src="img/displacementspherehigh.png" align="middle" width="400px" />
+              <figcaption>Displacement mapping, high resolution sphere</figcaption>
+            </td>
+          </tr>
+        </table>
+      </div>
+
+      <p>However, bump mapping remains equally convincing with both low and high vertex counts, while the quality of displacement mapping suffers when vertex count decreases because it has fewer vertices available to perturb to generate the modified geometry. It is noticeable in areas between "bricks" where the geometric valley between bricks appears to be larger than the bump texture shows, most likely because the spacing between vertices is greater than the width of the gap between the bricks, resulting in more of a spiky ball than a brick ball with valleys. This suggests that displacement mapping is a much more expensive process as, in addition to doing more work than bump mapping, it also requires a high vertex count for a convincing effect.</p>
+
+      <p>One interesting bug encountered while implementing this section is that when I forgot to cast the normal and tangent vectors to <code>vec3</code> before inserting them into a <code>mat3</code>, it simply failed silently, producing incorrect results but no crashes. Additionally, rather than setting the object-space normal <code>n_o</code> to $(-dU, -dV, 1)$ as the spec instructs, I had to set it to $(-dU, dV, 1)$ in order to obtain correct results. Perhaps the UV coordinate system has the V coordinate reversed.</p>
+
+    </div>
+
+</body>
 </html>
